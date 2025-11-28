@@ -115,7 +115,7 @@ defmodule Ueberauth.Strategy.Steam do
       "https://steamcommunity.com/openid/id/" <> id -> id
       _ -> raise "claimed_id matching error"
     end
-    
+
     key =
       :ueberauth
       |> Application.fetch_env!(Ueberauth.Strategy.Steam)
