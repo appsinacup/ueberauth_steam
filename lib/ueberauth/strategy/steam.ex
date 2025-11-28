@@ -148,16 +148,13 @@ defmodule Ueberauth.Strategy.Steam do
     end
   end
 
-  # Block undocumented function
-  @doc false
-  @spec default_options :: []
-  def default_options
+  # default_options is provided by `use Ueberauth.Strategy`
 
   @doc false
   @spec credentials(Plug.Conn.t) :: Ueberauth.Auth.Credentials.t
   def credentials(_conn), do: %Ueberauth.Auth.Credentials{}
 
-  @doc false
-  @spec auth(Plug.Conn.t) :: Ueberauth.Auth.t
-  def auth(conn)
+  # auth/1 default is provided by `use Ueberauth.Strategy`.
+  # Implement `uid/1`, `info/1`, `extra/1`, and `credentials/1` to
+  # customise the constructed `Ueberauth.Auth` struct.
 end
