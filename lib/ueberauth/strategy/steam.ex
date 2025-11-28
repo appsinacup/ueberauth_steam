@@ -153,7 +153,8 @@ defmodule Ueberauth.Strategy.Steam do
   @spec credentials(Plug.Conn.t) :: Ueberauth.Auth.Credentials.t
   def credentials(_conn), do: %Ueberauth.Auth.Credentials{}
 
-  @doc false
-  @spec auth(Plug.Conn.t) :: Ueberauth.Auth.t
-  def auth(conn)
+  # auth/1 default is provided by `use Ueberauth.Strategy` and is
+  # intentionally left unimplemented here so the injected default
+  # will be used. If you need to override it, implement `auth/1`
+  # to return an `%Ueberauth.Auth{}` struct.
 end
