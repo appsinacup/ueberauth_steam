@@ -60,10 +60,11 @@ defmodule Ueberauth.Strategy.SteamTest do
       :ok
     end
 
-    defp callback(params \\ %{}) do
-      conn = %{conn(:get, "http://example.com/path/callback") | params: params}
+    defp callback(params \\ %{}, session \\ %{}) do
+      conn = conn(:get, "http://example.com/path/callback") |> init_test_session(session)
+      conn = %{conn | params: params}
 
-      Steam.handle_callback! conn
+      Steam.handle_callback!(conn)
     end
 
     test "error for invalid callback parameters" do
@@ -142,7 +143,34 @@ defmodule Ueberauth.Strategy.SteamTest do
         }
     end
 
+    test "error when session state exists but missing in callback" do
+      session_state = String.duplicate("B", 24)
+
+      conn =
+        callback(%{"openid.mode" => "id_res", "openid.claimed_id" => "http://steamcommunity.com/openid/id/12345"}, %{"ueberauth_steam_state" => session_state})
+
+      assert conn.assigns == %{
+               ueberauth_failure: %Ueberauth.Failure{errors: [
+                 %Ueberauth.Failure.Error{message: "Cross-Site Request Forgery attack", message_key: "csrf_attack"}
+               ], provider: nil, strategy: nil}
+             }
+    end
+
+    test "error when session state exists but does not match returned one" do
+      session_state = String.duplicate("B", 24)
+
+      conn =
+        callback(%{"openid.mode" => "id_res", "openid.claimed_id" => "http://steamcommunity.com/openid/id/12345", "state" => "mismatch"}, %{"ueberauth_steam_state" => session_state})
+
+      assert conn.assigns == %{
+               ueberauth_failure: %Ueberauth.Failure{errors: [
+                 %Ueberauth.Failure.Error{message: "Cross-Site Request Forgery attack", message_key: "csrf_attack"}
+               ], provider: nil, strategy: nil}
+             }
+    end
+
     test "success for valid user and valid user data" do
+      session_state = String.duplicate("C", 24)
       :meck.new HTTPoison, [:passthrough]
       :meck.expect HTTPoison, :get, fn
         "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F12345&openid.mode=check_authentication" ->
@@ -154,11 +182,12 @@ defmodule Ueberauth.Strategy.SteamTest do
       conn =
         callback(%{
           "openid.mode" => "id_res",
-          "openid.claimed_id" => "http://steamcommunity.com/openid/id/12345"
-        })
+          "openid.claimed_id" => "http://steamcommunity.com/openid/id/12345",
+          "state" => session_state
+        }, %{"ueberauth_steam_state" => session_state})
 
       assert conn.assigns == %{}
-      assert conn.private == %{steam_user: @sample_user}
+      assert conn.private[:steam_user] == @sample_user
     end
   end
 

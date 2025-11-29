@@ -15,26 +15,47 @@ defmodule Ueberauth.Strategy.Steam do
   """
   @spec handle_request!(Plug.Conn.t) :: Plug.Conn.t
   def handle_request!(conn) do
-    # If a CSRF session token exists, include it as a state param on the
-    # return_to URL so apps that validate a state token (OAuth-style CSRF
-    # protection) will receive it back from Steam and be able to validate.
+    # Ensure session is fetched and we store a server side 'state' token
+    # in the session for round-tripping. We try to prefer the CSRF state
+    # if the session stores a valid CSRF token, but fall back to a newly
+    # generated token when necessary.
+    conn =
+      try do
+        Plug.Conn.fetch_session(conn)
+      rescue
+        _ in ArgumentError ->
+          conn
+      end
+
     state =
       try do
-        case Plug.Conn.get_session(conn, "_csrf_token") do
-          nil -> nil
-          session_token -> Plug.CSRFProtection.dump_state_from_session(session_token)
+        session_token = Plug.Conn.get_session(conn, "_csrf_token")
+
+        state_from_session = if is_binary(session_token), do: Plug.CSRFProtection.dump_state_from_session(session_token), else: nil
+
+        if state_from_session do
+          state_from_session
+        else
+          # Generate a url-safe state value ~24 chars (matches Plug encoding sizes)
+          :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)
         end
       rescue
         _ in ArgumentError ->
-          # session not fetched; treat as no state available
-          nil
+          :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)
+      end
+
+    conn =
+      try do
+        Plug.Conn.put_session(conn, "ueberauth_steam_state", state)
+      rescue
+        _ in ArgumentError -> conn
       end
 
     query =
       %{
         "openid.mode" => "checkid_setup",
         "openid.realm" => callback_url(conn),
-        "openid.return_to" => if(state, do: callback_url(conn, state: state), else: callback_url(conn)),
+        "openid.return_to" => callback_url(conn, state: state),
         "openid.ns" => "http://specs.openid.net/auth/2.0",
         "openid.claimed_id" => "http://specs.openid.net/auth/2.0/identifier_select",
         "openid.identity" => "http://specs.openid.net/auth/2.0/identifier_select",
@@ -49,9 +70,47 @@ defmodule Ueberauth.Strategy.Steam do
   """
   @spec handle_callback!(Plug.Conn.t) :: Plug.Conn.t
   def handle_callback!(conn = %Plug.Conn{params: %{"openid.mode" => "id_res"}}) do
-    params = conn.params
+    # If a server-side state token was stored in the session during the
+    # request phase, validate that it is present and matches the returned
+    # params. If session state exists but the returned state is missing or
+    # does not match, treat as a CSRF attack.
+    conn =
+      try do
+        Plug.Conn.fetch_session(conn)
+      rescue
+        _ in ArgumentError ->
+          conn
+      end
 
-    [valid, user] =
+    conn =
+      case Plug.Conn.get_session(conn, "ueberauth_steam_state") do
+        nil ->
+          conn
+
+        expected_state ->
+          returned = conn.params["state"]
+
+          cond do
+            returned == nil ->
+              set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")])
+
+            returned != expected_state ->
+              set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")])
+
+            true ->
+              conn
+          end
+      end
+
+    # If we've already set an ueberauth failure (e.g. CSRF attack detected)
+    # return early so we don't attempt to validate the openid or make HTTP
+    # calls.
+    if conn.assigns[:ueberauth_failure] do
+      conn
+    else
+      params = conn.params
+
+      [valid, user] =
       [ # Validate and retrieve the steam user at the same time.
         fn -> validate_user(params) end,
         fn -> retrieve_user(params) end,
@@ -59,12 +118,13 @@ defmodule Ueberauth.Strategy.Steam do
       |> Enum.map(&Task.async/1)
       |> Enum.map(&Task.await/1)
 
-    case valid && !is_nil(user) do
+      case valid && !is_nil(user) do
       true ->
         conn
         |> put_private(:steam_user, user)
       false ->
         set_errors!(conn, [error("invalid_user", "Invalid steam user")])
+    end
     end
   end
 
