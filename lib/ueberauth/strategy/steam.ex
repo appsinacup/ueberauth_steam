@@ -15,11 +15,26 @@ defmodule Ueberauth.Strategy.Steam do
   """
   @spec handle_request!(Plug.Conn.t) :: Plug.Conn.t
   def handle_request!(conn) do
+    # If a CSRF session token exists, include it as a state param on the
+    # return_to URL so apps that validate a state token (OAuth-style CSRF
+    # protection) will receive it back from Steam and be able to validate.
+    state =
+      try do
+        case Plug.Conn.get_session(conn, "_csrf_token") do
+          nil -> nil
+          session_token -> Plug.CSRFProtection.dump_state_from_session(session_token)
+        end
+      rescue
+        _ in ArgumentError ->
+          # session not fetched; treat as no state available
+          nil
+      end
+
     query =
       %{
         "openid.mode" => "checkid_setup",
         "openid.realm" => callback_url(conn),
-        "openid.return_to" => callback_url(conn),
+        "openid.return_to" => if(state, do: callback_url(conn, state: state), else: callback_url(conn)),
         "openid.ns" => "http://specs.openid.net/auth/2.0",
         "openid.claimed_id" => "http://specs.openid.net/auth/2.0/identifier_select",
         "openid.identity" => "http://specs.openid.net/auth/2.0/identifier_select",

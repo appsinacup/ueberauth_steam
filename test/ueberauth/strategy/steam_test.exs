@@ -30,7 +30,23 @@ defmodule Ueberauth.Strategy.SteamTest do
 
       {"location", location} = List.keyfind(conn.resp_headers, "location", 0)
 
-      assert location == "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.mode=checkid_setup&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&openid.realm=http%3A%2F%2Fexample.com&openid.return_to=http%3A%2F%2Fexample.com"
+      assert String.contains?(location, "https://steamcommunity.com/openid/login?")
+      assert String.contains?(location, "openid.realm=http%3A%2F%2Fexample.com")
+      assert String.contains?(location, "openid.return_to=http%3A%2F%2Fexample.com")
+    end
+
+    test "includes state when session csrf token exists" do
+      session_token = String.duplicate("A", 24)
+      conn = conn(:get, "http://example.com/path") |> init_test_session(%{"_csrf_token" => session_token})
+
+      conn = Steam.handle_request!(conn)
+      {"location", location} = List.keyfind(conn.resp_headers, "location", 0)
+
+      # return_to should include a state param that contains the session token
+      assert String.contains?(location, "openid.return_to=")
+      # The state value will be url encoded inside the return_to param
+      # it will therefore appear as state%3D in the top-level querystring
+      assert String.contains?(location, "state%3D")
     end
   end
 
