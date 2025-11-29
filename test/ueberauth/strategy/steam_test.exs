@@ -52,10 +52,10 @@ defmodule Ueberauth.Strategy.SteamTest do
 
   describe "handle_callback!" do
     setup do
-      :meck.new Application, [:passthrough]
-      :meck.expect Application, :fetch_env!, fn _, _ -> [api_key: "API_KEY"] end
+      # Configure API key in the application env for the tests
+      Application.put_env(:ueberauth, Ueberauth.Strategy.Steam, api_key: "API_KEY")
 
-      on_exit(fn -> :meck.unload end)
+      on_exit(fn -> Application.delete_env(:ueberauth, Ueberauth.Strategy.Steam) end)
 
       :ok
     end
@@ -79,6 +79,7 @@ defmodule Ueberauth.Strategy.SteamTest do
 
     test "error for missing user valid information" do
       :meck.new HTTPoison, [:passthrough]
+      on_exit(fn -> :meck.unload end)
       :meck.expect HTTPoison, :get, fn
         "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F12345&openid.mode=check_authentication" ->
           {:ok, %HTTPoison.Response{body: "", status_code: 200}}
@@ -101,6 +102,7 @@ defmodule Ueberauth.Strategy.SteamTest do
 
     test "error for invalid user callback" do
       :meck.new HTTPoison, [:passthrough]
+      on_exit(fn -> :meck.unload end)
       :meck.expect HTTPoison, :get, fn
         "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F12345&openid.mode=check_authentication" ->
           {:ok, %HTTPoison.Response{body: "is_valid:false\n", status_code: 200}}
@@ -123,6 +125,7 @@ defmodule Ueberauth.Strategy.SteamTest do
 
     test "error for invalid user data" do
       :meck.new HTTPoison, [:passthrough]
+      on_exit(fn -> :meck.unload end)
       :meck.expect HTTPoison, :get, fn
         "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F12345&openid.mode=check_authentication" ->
           {:ok, %HTTPoison.Response{body: "is_valid:true\n", status_code: 200}}
@@ -156,6 +159,56 @@ defmodule Ueberauth.Strategy.SteamTest do
              }
     end
 
+    test "accepts cookie state when session absent" do
+      cookie_state = String.duplicate("D", 24)
+
+      conn =
+        conn(:get, "http://example.com/path/callback")
+        |> put_req_header("cookie", "ueberauth.state_param=#{cookie_state}")
+        |> Map.put(:req_cookies, %{"ueberauth.state_param" => cookie_state})
+        |> Map.put(:params, %{"openid.mode" => "id_res", "openid.claimed_id" => "http://steamcommunity.com/openid/id/12345", "state" => cookie_state})
+
+      # Prepare HTTPoison expectations for normal happy path
+      :meck.new HTTPoison, [:passthrough]
+      on_exit(fn -> :meck.unload end)
+      :meck.expect HTTPoison, :get, fn
+        "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F12345&openid.mode=check_authentication" ->
+          {:ok, %HTTPoison.Response{body: "is_valid:true\n", status_code: 200}}
+        "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=API_KEY&steamids=12345" ->
+          {:ok, %HTTPoison.Response{body: Poison.encode!(@sample_response), status_code: 200}}
+      end
+
+      # sanity-check the request header has the cookie we set, otherwise the
+      # code that extracts cookies won't see it
+      assert Plug.Conn.get_req_header(conn, "cookie") != []
+
+      conn = Steam.handle_callback!(conn)
+
+      assert conn.assigns == %{}
+      assert conn.private[:steam_user] == @sample_user
+    end
+
+    test "rejects when cookie state exists but does not match returned one" do
+      cookie_state = String.duplicate("E", 24)
+
+      conn =
+        conn(:get, "http://example.com/path/callback")
+        |> put_req_header("cookie", "ueberauth.state_param=#{cookie_state}")
+        |> Map.put(:req_cookies, %{"ueberauth.state_param" => cookie_state})
+        |> Map.put(:params, %{"openid.mode" => "id_res", "openid.claimed_id" => "http://steamcommunity.com/openid/id/12345", "state" => "mismatch"})
+
+      # sanity-check the request header has the cookie we set
+      assert Plug.Conn.get_req_header(conn, "cookie") != []
+
+      conn = Steam.handle_callback!(conn)
+
+      assert conn.assigns == %{
+               ueberauth_failure: %Ueberauth.Failure{errors: [
+                 %Ueberauth.Failure.Error{message: "Cross-Site Request Forgery attack", message_key: "csrf_attack"}
+               ], provider: nil, strategy: nil}
+             }
+    end
+
     test "error when session state exists but does not match returned one" do
       session_state = String.duplicate("B", 24)
 
@@ -172,6 +225,7 @@ defmodule Ueberauth.Strategy.SteamTest do
     test "success for valid user and valid user data" do
       session_state = String.duplicate("C", 24)
       :meck.new HTTPoison, [:passthrough]
+      on_exit(fn -> :meck.unload end)
       :meck.expect HTTPoison, :get, fn
         "https://steamcommunity.com/openid/login?openid.claimed_id=http%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F12345&openid.mode=check_authentication" ->
           {:ok, %HTTPoison.Response{body: "is_valid:true\n", status_code: 200}}

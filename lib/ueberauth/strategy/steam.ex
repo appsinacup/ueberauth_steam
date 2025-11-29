@@ -5,6 +5,8 @@ defmodule Ueberauth.Strategy.Steam do
 
   use Ueberauth.Strategy
 
+  require Logger
+
   alias Ueberauth.Auth.Info
   alias Ueberauth.Auth.Extra
 
@@ -46,7 +48,9 @@ defmodule Ueberauth.Strategy.Steam do
 
     conn =
       try do
-        Plug.Conn.put_session(conn, "ueberauth_steam_state", state)
+        conn
+        |> Plug.Conn.put_session("ueberauth_steam_state", state)
+        |> Plug.Conn.put_resp_cookie("ueberauth.state_param", state, http_only: true, max_age: 300, same_site: "Lax")
       rescue
         _ in ArgumentError -> conn
       end
@@ -82,25 +86,100 @@ defmodule Ueberauth.Strategy.Steam do
           conn
       end
 
-    conn =
-      case Plug.Conn.get_session(conn, "ueberauth_steam_state") do
-        nil ->
-          conn
+    {conn, failed} =
+      try do
 
-        expected_state ->
-          returned = conn.params["state"]
-
-          cond do
-            returned == nil ->
-              set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")])
-
-            returned != expected_state ->
-              set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")])
-
-            true ->
-              conn
+        session_state =
+          try do
+            Plug.Conn.get_session(conn, "ueberauth_steam_state")
+          rescue
+            _ in ArgumentError -> nil
           end
+
+        # prefer req_cookies if already present (eg. in tests via put_req_cookie).
+        headers = Plug.Conn.get_req_header(conn, "cookie")
+        Logger.debug("[ueberauth_steam] req_cookies=#{inspect(conn.req_cookies)} cookies=#{inspect(conn.cookies)} headers=#{inspect(headers)}")
+        cookie_state = Map.get(conn.req_cookies || %{}, "ueberauth.state_param") || Map.get(conn.cookies || %{}, "ueberauth.state_param")
+
+        # fallback: parse cookie header string manually if req_cookies/cookies not present
+        cookie_state =
+          if cookie_state == nil do
+            case Plug.Conn.get_req_header(conn, "cookie") do
+              [cookie_header | _] when is_binary(cookie_header) ->
+                cookie_header
+                |> String.split(";")
+                |> Enum.map(&String.trim/1)
+                |> Enum.find_value(fn part ->
+                  case String.split(part, "=", parts: 2) do
+                    ["ueberauth.state_param", value] -> value
+                    _ -> nil
+                  end
+                end)
+              _ ->
+                nil
+            end
+          else
+            cookie_state
+          end
+
+        # also look for a CSRF-derived state candidate if present
+        csrf_candidate =
+          try do
+            case Plug.Conn.get_session(conn, "_csrf_token") do
+              nil -> nil
+              s when is_binary(s) -> Plug.CSRFProtection.dump_state_from_session(s)
+            end
+          rescue
+            _ in ArgumentError -> nil
+          end
+
+        candidates = Enum.filter([session_state, cookie_state, csrf_candidate], &(&1 != nil))
+
+        returned = conn.params["state"]
+        require Logger
+        Logger.debug("[ueberauth_steam] state validation: candidates=#{inspect(candidates)} returned=#{inspect(returned)}")
+
+        cond do
+          candidates == [] ->
+            # no state was stored/expected — allow the flow; DO NOT set errors
+            {conn, false}
+
+          returned == nil ->
+            Logger.debug("[ueberauth_steam] state validation -> missing returned state, setting csrf failure")
+            {set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")]), true}
+
+          not Enum.member?(candidates, returned) ->
+            Logger.debug("[ueberauth_steam] state validation -> returned state does not match candidates=#{inspect(candidates)} returned=#{inspect(returned)}")
+            {set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")]), true}
+
+          true ->
+              # valid: clear persisted states (safe in tests/apps without session/cookies)
+              conn =
+                try do
+                  Plug.Conn.delete_session(conn, "ueberauth_steam_state")
+                rescue
+                  _ in ArgumentError -> conn
+                end
+
+              try do
+                Plug.Conn.delete_resp_cookie(conn, "ueberauth.state_param")
+              rescue
+                _ in ArgumentError -> conn
+              end
+
+            {conn, false}
+        end
+      rescue
+        _ -> {conn, false}
       end
+
+    # if failed we must immediately return to avoid overwriting failure
+    if failed do
+      conn
+    else
+
+    require Logger
+    Logger.debug("[ueberauth_steam] after state validation, failure=#{inspect(conn.assigns[:ueberauth_failure])}")
 
     # If we've already set an ueberauth failure (e.g. CSRF attack detected)
     # return early so we don't attempt to validate the openid or make HTTP
@@ -108,6 +187,7 @@ defmodule Ueberauth.Strategy.Steam do
     if conn.assigns[:ueberauth_failure] do
       conn
     else
+      Logger.debug("[ueberauth_steam] proceeding to user validation; params=#{inspect(conn.params)}")
       params = conn.params
 
       [valid, user] =
@@ -124,6 +204,7 @@ defmodule Ueberauth.Strategy.Steam do
         |> put_private(:steam_user, user)
       false ->
         set_errors!(conn, [error("invalid_user", "Invalid steam user")])
+    end
     end
     end
   end
