@@ -97,8 +97,7 @@ defmodule Ueberauth.Strategy.Steam do
           end
 
         # prefer req_cookies if already present (eg. in tests via put_req_cookie).
-        headers = Plug.Conn.get_req_header(conn, "cookie")
-        Logger.debug("[ueberauth_steam] req_cookies=#{inspect(conn.req_cookies)} cookies=#{inspect(conn.cookies)} headers=#{inspect(headers)}")
+        _headers = Plug.Conn.get_req_header(conn, "cookie")
         cookie_state = Map.get(conn.req_cookies || %{}, "ueberauth.state_param") || Map.get(conn.cookies || %{}, "ueberauth.state_param")
 
         # fallback: parse cookie header string manually if req_cookies/cookies not present
@@ -136,8 +135,7 @@ defmodule Ueberauth.Strategy.Steam do
         candidates = Enum.filter([session_state, cookie_state, csrf_candidate], &(&1 != nil))
 
         returned = conn.params["state"]
-        require Logger
-        Logger.debug("[ueberauth_steam] state validation: candidates=#{inspect(candidates)} returned=#{inspect(returned)}")
+        :ok
 
         cond do
           candidates == [] ->
@@ -145,11 +143,11 @@ defmodule Ueberauth.Strategy.Steam do
             {conn, false}
 
           returned == nil ->
-            Logger.debug("[ueberauth_steam] state validation -> missing returned state, setting csrf failure")
+            :ok
             {set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")]), true}
 
           not Enum.member?(candidates, returned) ->
-            Logger.debug("[ueberauth_steam] state validation -> returned state does not match candidates=#{inspect(candidates)} returned=#{inspect(returned)}")
+            :ok
             {set_errors!(conn, [error("csrf_attack", "Cross-Site Request Forgery attack")]), true}
 
           true ->
@@ -179,7 +177,7 @@ defmodule Ueberauth.Strategy.Steam do
     else
 
     require Logger
-    Logger.debug("[ueberauth_steam] after state validation, failure=#{inspect(conn.assigns[:ueberauth_failure])}")
+    :ok
 
     # If we've already set an ueberauth failure (e.g. CSRF attack detected)
     # return early so we don't attempt to validate the openid or make HTTP
@@ -187,7 +185,7 @@ defmodule Ueberauth.Strategy.Steam do
     if conn.assigns[:ueberauth_failure] do
       conn
     else
-      Logger.debug("[ueberauth_steam] proceeding to user validation; params=#{inspect(conn.params)}")
+      :ok
       params = conn.params
 
       [valid, user] =
