@@ -1,11 +1,11 @@
 # Überauth Steam
 
-[![Hex.pm](https://img.shields.io/hexpm/v/ueberauth_steam.svg "Hex")](https://hex.pm/packages/ueberauth_steam)
+[![Hex.pm](https://img.shields.io/hexpm/v/ueberauth_steam_strategy.svg "Hex")](https://hex.pm/packages/ueberauth_steam_strategy)
 [![Build Status](https://travis-ci.org/shinyscorpion/ueberauth_steam.svg?branch=master)](https://travis-ci.org/shinyscorpion/ueberauth_steam)
 [![Coverage Status](https://coveralls.io/repos/github/shinyscorpion/ueberauth_steam/badge.svg?branch=master)](https://coveralls.io/github/shinyscorpion/ueberauth_steam?branch=master)
 [![Inline docs](http://inch-ci.org/github/shinyscorpion/ueberauth_steam.svg?branch=master)](http://inch-ci.org/github/shinyscorpion/ueberauth_steam)
 [![Deps Status](https://beta.hexfaktor.org/badge/all/github/shinyscorpion/ueberauth_steam.svg)](https://beta.hexfaktor.org/github/shinyscorpion/ueberauth_steam)
-[![Hex.pm](https://img.shields.io/hexpm/l/ueberauth_steam.svg "License")](LICENSE)
+[![Hex.pm](https://img.shields.io/hexpm/l/ueberauth_steam_strategy.svg "License")](LICENSE)
 
 > Steam OpenID strategy for Überauth.
 
@@ -13,11 +13,11 @@
 
 1. Obtain an Steam Web API Key at [Steam Dev](https://steamcommunity.com/login/home/?goto=%2Fdev%2Fapikey).
 
-1. Add `:ueberauth_steam` to your list of dependencies in `mix.exs`:
+1. Add `:ueberauth_steam_strategy` to your list of dependencies in `mix.exs`:
 
     ```elixir
     def deps do
-      [{:ueberauth_steam, "~> 0.1.3", github: "appsinacup/ueberauth_steam"},]
+      [{:ueberauth_steam_strategy, "~> 0.1.5", github: "appsinacup/ueberauth_steam"},]
     end
     ```
 
@@ -25,7 +25,7 @@
 
     ```elixir
     def application do
-      [applications: [:ueberauth_steam]]
+      [applications: [:ueberauth_steam_strategy]]
     end
     ```
 

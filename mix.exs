@@ -3,7 +3,7 @@ defmodule UeberauthSteam.Mixfile do
 
   def project do
     [
-      app: :ueberauth_steam,
+      app: :ueberauth_steam_strategy,
       description: "Steam OpenID Strategy for Überauth.",
       version: "0.1.5",
       elixir: "~> 1.4",
@@ -30,7 +30,7 @@ defmodule UeberauthSteam.Mixfile do
 
   def package do
     [
-      name: :ueberauth_steam,
+      name: :ueberauth_steam_strategy,
       maintainers: ["Ian Luites"],
       licenses: ["MIT"],
       files: [
